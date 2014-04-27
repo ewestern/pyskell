@@ -10,9 +10,7 @@ import Parser.Syntax
 lexer :: Tok.TokenParser ()
 lexer = Tok.makeTokenParser def
           where 
-            names = ["def", "print", "del", "pass", "break", "continue", "return", "raise", "import", "from", "exec", "assert"
-                    , "if", "elif", "else", "while", "try", "finally", "with", "as", "or", "and", "not", "in", "is", "lambda"
-                      , "class", "for", "yield"]
+            names = ["def", "print", "del", "pass", "break", "continue", "return", "raise", "import", "from", "exec", "assert", "if", "elif", "else", "while", "try", "finally", "with", "as", "or", "and", "not", "in", "is", "lambda", "class", "for", "yield"]
             def = emptyDef {
               Tok.commentLine  = "#"
               , Tok.identStart = letter <|> char '_'
@@ -22,8 +20,32 @@ lexer = Tok.makeTokenParser def
             }
 
 
+comma :: Parser String
+comma = Tok.comma lexer
+
+ticks :: Parser a -> Parser a
+ticks p = between (symbol "`") (symbol "`") p
+
 parens :: Parser a -> Parser a
 parens = Tok.parens lexer
+
+quotes :: Parser a -> Parser a 
+quotes p = between (char '"') (symbol "\"") p
+
+squares :: Parser a -> Parser a
+squares = Tok.squares lexer
+
+braces :: Parser a -> Parser a
+braces = Tok.braces lexer
+
+symbol :: String -> Parser String
+symbol = Tok.symbol lexer
+
+dot :: Parser String
+dot = Tok.dot lexer
+
+colon :: Parser String
+colon = Tok.colon lexer
 
 commaSep :: Parser a -> Parser [a]
 commaSep = Tok.commaSep lexer

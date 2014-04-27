@@ -52,8 +52,8 @@ data Parameters = Parameters (Maybe VarArgsList)
 --              fpdef ['=' test] (',' fpdef ['=' test])*   [','])
 data ProtoVarArgsList = 
   ProtoVarArgsList_Name Name
-  | ProtoVarArgsList_Names Name Name
-  | ProtoVarArgsList_FP FPDef (Maybe Test) [(FPDef, (Maybe Test))]
+  | ProtoVarArgsList_Names Name (Maybe Name)
+  | ProtoVarArgsList_FP [(FPDef, (Maybe Test))]
 
 
 data VarArgsList = VarArgsList [(FPDef, (Maybe Test))] ProtoVarArgsList
@@ -196,7 +196,7 @@ data DottedAsName = DottedAsName DottedName (Maybe Name)
 type ImportAsNames = [ImportAsName]
 
 --dotted_as_names: dotted_as_name (',' dotted_as_name)*
-data DottedAsNames = DottedAsNames [DottedAsNames]
+type DottedAsNames = [DottedAsName]
 
 --dotted_name: NAME ('.' NAME)*
 
@@ -243,7 +243,7 @@ data ForStatement = ForStatement ExpressionList TestList Suite (Maybe Suite)
 --         )
 
 data TryPredicate = 
-  TryPredicate_Except ExceptClause (Maybe Suite) (Maybe Suite)
+  TryPredicate_Except [(ExceptClause, Suite)] (Maybe Suite) (Maybe Suite)
   | TryPredicate_Finally Suite
 
 data TryStatement = TryStatement Suite TryPredicate
@@ -259,11 +259,13 @@ data WithItem = WithItem Test (Maybe Expression)
 --   # NB compile.c makes sure that the default except clause is last
 --except_clause: 'except' [test [('as' | ',') test] ]
 
-data CompoundExcept = Except_As Test | Except_Comma Test
+data CompoundExcept = 
+  Except_As
+  | Except_Comma
 
-data ExceptClause = ExceptClause (Maybe Test) (Maybe CompoundExcept)
+data ExceptClause = ExceptClause (Maybe Test) (Maybe (CompoundExcept, Test))
+
 --suite: simple_stmt | NEWLINE INDENT stmt+ DEDENT
-
 data Suite = 
   Suite_Simple SimpleStatement
   | Suite_Compound [Statement]
@@ -273,31 +275,31 @@ data Suite =
 --    # even while also allowing:
 --    # lambda x: 5 if x else 2
 --    # (But not a mix of the two)
---    testlist_safe: old_test [(',' old_test)+ [',']]
---old_test: or_test | old_lambdef
 
 --old_lambdef: 'lambda' [varargslist] ':' old_test
 data OldLambda = OldLambda (Maybe VarArgsList) OldTest
 
---test: or_test ['if' or_test 'else' test] | lambdef
+--old_test: or_test | old_lambdef
 
 data OldTest = 
   OldTest_Or OrTest
   | OldTest_Lam OldLambda
 
-data TestListSafe = TestListSafe OldTest [Maybe OldTest]
+--    testlist_safe: old_test [(',' old_test)+ [',']]
+type TestListSafe = [OldTest]
 
+--test: or_test ['if' or_test 'else' test] | lambdef
 data Test = 
-  Test_Or (OrTest, (Maybe (OrTest, Test)))
+  Test_Or OrTest (Maybe (OrTest, Test))
   | Test_Lam LambdaDef
 
 
 --or_test: and_test ('or' and_test)*
+type OrTest = [AndTest]
 
-data OrTest = OrTest AndTest [AndTest]
 --and_test: not_test ('and' not_test)*
+type AndTest = [NotTest]
 
-data AndTest = AndTest NotTest [NotTest]
 --not_test: 'not' not_test | comparison
 data NotTest = 
   NotTest_Not NotTest
@@ -307,10 +309,11 @@ data NotTest =
 
 data Comparison = Comparison Expression [(CompOperator, Expression)]
 
+--comp_op: '<'|'>'|'=='|'>='|'<='|'<>'|'!='|'in'|'not' 'in'|'is'|'is' 'not'
 data Comp = 
-  LT
-  | GT
-  | EQ
+  LT'
+  | GT'
+  | EQ'
   | GTE
   | LTE
   | OldNE
@@ -319,38 +322,17 @@ data Comp =
   | Not
   | Is
 
---comp_op: '<'|'>'|'=='|'>='|'<='|'<>'|'!='|'in'|'not' 'in'|'is'|'is' 'not'
---data FirstComp = 
---  LT
---  | GT
---  | EQ
---  | GTE
---  | LTE
---  | OldNE
---  | NE
---  | In
---  | Not
---data SecondComp = 
-
-data CompOperator = CompOperator Comp Comp Comp
-
---data Command where
---  Arithmetic' :: Arithmetic -> Command 
---  MemAccess' :: MemAccess -> Command
---  Flow' :: Flow -> Command
---  FCall' :: FCall -> Command
---  deriving (Show)
-
-
+data CompOperator = CompOperator Comp
 
 
 --expr: xor_expr ('|' xor_expr)*
-data Expression = Expression XORExpression [XORExpression] 
+type Expression = [XORExpression] 
 
 --xor_expr: and_expr ('^' and_expr)*
-data XORExpression = XORExpression AndExpression [AndExpression]
+type XORExpression = [AndExpression]
+
 --and_expr: shift_expr ('&' shift_expr)*
-data AndExpression = AndExpression ShiftExpression [ShiftExpression]
+type AndExpression = [ShiftExpression]
 
 --shift_expr: arith_expr (('<<'|'>>') arith_expr)*
 data Shift =
@@ -404,82 +386,88 @@ data Atom =
   | Atom_Name Name
   | Atom_Number Number
   | Atom_String String'
---listmaker: test ( list_for | (',' test)* [','] )
 
+--listmaker: test ( list_for | (',' test)* [','] )
 data ListMaker = 
   ListMaker_List Test ListFor
-  | ListMaker_Test Test [Test]
+  | ListMaker_Test [Test]
 
 --testlist_comp: test ( comp_for | (',' test)* [','] )
 data TestListComp = 
   TestListComp_Comp Test CompFor
-  |TestListComp_Test Test [Test]
+  |TestListComp_Test [Test]
 
 --lambdef: 'lambda' [varargslist] ':' test
-
 data LambdaDef = LambdaDef (Maybe VarArgsList) Test
---trailer: '(' [arglist] ')' | '[' subscriptlist ']' | '.' NAME
 
+
+--trailer: '(' [arglist] ')' | '[' subscriptlist ']' | '.' NAME
 data Trailer = 
   Trailer_Arglist (Maybe ArgList)
   | Trailer_SubscriptList SubscriptList
   | Trailer_Name Name
---subscriptlist: subscript (',' subscript)* [',']
 
-data SubscriptList = SubscriptList [Subscript]
+--subscriptlist: subscript (',' subscript)* [',']
+type SubscriptList = [Subscript]
+
 
 type Ellipsis = String
---subscript: '.' '.' '.' | test | [test] ':' [test] [sliceop]
 
+--subscript: '.' '.' '.' | test | [test] ':' [test] [sliceop]
 data Subscript = 
   Subscript_Ellipsis Ellipsis
   | Subscript_Test Test
-  | SubScript_Slice (Maybe Test) (Maybe Test) SliceOp
---sliceop: ':' [test]
+  | SubScript_Slice (Maybe Test) (Maybe Test) (Maybe SliceOp)
 
+--sliceop: ':' [test]
 data SliceOp = SliceOp (Maybe Test)
 
 --exprlist: expr (',' expr)* [','] 
-data ExpressionList = ExpressionList [Expression]
+type ExpressionList = [Expression]
 
 --testlist: test (',' test)* [',']
-data TestList = TestList [Test]
+type TestList = [Test]
 
 --dictorsetmaker: ( (test ':' test (comp_for | (',' test ':' test)* [','])) |
 --                  (test (comp_for | (',' test)* [','])) )
 
---data CompOrTests = 
---  CompOrTests_For CompFor
---  CompOrTests_Test 
---  | [(Test, Test)]
 
-data DictMaker = 
-  DictMaker_For Test Test CompFor
-  | DIctMaker_Test Test Test [(Test, Test)]
+data CompOrTests = 
+  CompOrTests_Comp CompFor
+  | CompOrTests_Tests [(Test, Test)]
 
-data SetMaker = 
-  SetMaker_For Test CompFor
-  | SetMaker_Test Test [Test]
+data CompOrTest = 
+  CompOrTest_Comp CompFor
+  | CompOrTest_Tests [Test]
+
+data DictMaker = DictMaker Test Test CompOrTests
+  --  | DictMaker_Test Test Test [(Test, Test)]
+
+data SetMaker = SetMaker Test CompOrTest
 
 data DictOrSetMaker = 
   DictOrSetMaker_Dict DictMaker 
   | DictOrSetMaker_Set SetMaker
 
 --classdef: 'class' NAME ['(' [testlist] ')'] ':' suite
-
 data ClassDef = ClassDef Name (Maybe TestList) Suite
+
+
 --arglist: (argument ',')* (argument [',']
 --                         |'*' test (',' argument)* [',' '**' test] 
 --                         |'**' test)
 --    # The reason that keywords are test nodes instead of NAME is that using NAME
 --    # results in an ambiguity. ast.c makes sure it's a NAME.
 
-data ArgList = 
+data ArgListPred = 
   ArgList_Arg Argument
-  | ArgList_ArgTest Test [Argument] (Maybe Test)
-  | Test
---argument: test [comp_for] | test '=' test
+  | ArgList_Single Test [Argument] (Maybe Test)
+  | ArgList_Double Test 
 
+data ArgList = ArgList [Argument] ArgListPred
+
+
+ --argument: test [comp_for] | test '=' test
 data Argument = 
   Argument_Comp Test (Maybe CompFor)
   | Argument_Test Test Test
@@ -490,11 +478,12 @@ data ListIter = ListIter_For ListFor
   
 --list_for: 'for' exprlist 'in' testlist_safe [list_iter]
 data ListFor = ListFor ExpressionList TestListSafe (Maybe ListIter)
+
 --list_if: 'if' old_test [list_iter]
 
 
 --comp_iter: comp_for | comp_if
-data CompIter = CompIter CompFor
+data CompIter = CompIter_For CompFor
 
 --comp_for: 'for' exprlist 'in' or_test [comp_iter]
 data CompFor = CompFor ExpressionList OrTest (Maybe CompIter)
@@ -503,9 +492,9 @@ data CompFor = CompFor ExpressionList OrTest (Maybe CompIter)
 
 --testlist1: test (',' test)*
 
-data TestList1 = TestList1 Test [Test]
+type TestList1 = [Test]
 --  # not used in grammar, but may appear in "node" passed from Parser to Compiler
 --encoding_decl: NAME
 
 --yield_expr: 'yield' [testlist]
-data YieldExpression = YieldExpression (Maybe TestList)
+type YieldExpression = (Maybe TestList)
