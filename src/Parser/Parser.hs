@@ -1,20 +1,22 @@
 module Parser where
 
-import Text.Parsec
+import Text.Parsec hiding (State)
 import Text.Parsec.String (Parser)
 import Control.Applicative ((<$>))
+--import Text.Parsec.Indent
 import qualified Text.Parsec.Expr as Ex
 import qualified Text.Parsec.Token as Tok
 
-import Parser.Lexer
-import Parser.Syntax
+import Control.Monad.State
 
+import Lexer
+import Syntax
 
---binary s f assoc = Ex.Infix (reservedOp s >> return (BinOp f)) assoc
+--type IParser a = ParsecT String () (State SourcePos) a
 
---table = [[binary "*" Times Ex.AssocLeft, binary "/" Divide Ex.AssocLeft],
---          [binary "+" Plus Ex.AssocLeft, binary "-" Minus Ex.AssocLeft]]
-
+--iParse :: IParser a -> SourceName -> String -> Either ParseError a
+--iParse aParser source_name input =
+--  runIndent source_name $ runParserT aParser () source_name input
 
 pNumber :: Parser Number
 pNumber = do
@@ -75,11 +77,12 @@ pDecorated = do
 
 pFuncDef :: Parser FuncDef
 pFuncDef = do
+  p <- getPosition
   reserved "def"
   n <- identifier
   ps <- pParameters
   colon
-  s <- pSuite
+  s <- pSuite p
   return $ FuncDef n ps s
 
 pParameters :: Parser Parameters
@@ -262,63 +265,72 @@ pCompoundStatement = (CompoundStatement_If <$> pIfStatement) <|> (CompoundStatem
 
 pIfStatement :: Parser IfStatement
 pIfStatement = do
+  p <- getPosition
   reserved "if"
   t <- pTest
-  s <- pSuite
+  colon
+  s <- pSuite p
   elifs <- many pElif
   el <- option Nothing (Just <$> pElse)
   return $ IfStatement t s elifs el
   where
     pElif = do
+      p <- getPosition
       reserved "elif"
       t <- pTest
       colon
-      s <- pSuite
+      s <- pSuite p
       return (t, s)
 
 pElse :: Parser Suite
 pElse = do
+  p <- getPosition
   reserved "else"
   colon
-  s <- pSuite
+  s <- pSuite p
   return s
 
 
 pWhileStatement :: Parser WhileStatement
 pWhileStatement = do
+  p <- getPosition
   reserved "while"
   t <- pTest
-  s <- pSuite
+  s <- pSuite p
   el <- option Nothing (Just <$> pElse)
   return $ WhileStatement t s el
 
 pForStatement :: Parser ForStatement
 pForStatement = do
+  p <- getPosition
   reserved "for"
   ex <- pExpressionList
   reserved "in"
   tl <- pTestList
   colon
-  s <- pSuite
+  s <- pSuite p
   el <- option Nothing (Just <$> pElse)
   return $ ForStatement ex tl s el
 
 pTryStatement :: Parser TryStatement
 pTryStatement = do
+  ps <- getPosition
   reserved "try"
-  s <- pSuite
+  s <- pSuite ps
   tp <- pTryExcept <|> (TryPredicate_Finally <$> pFinally)
   return $ TryStatement s tp
   where
     pExceptSuite = do
+      p <- getPosition
       pc <- pExceptClause
       colon
-      s <- pSuite
+      s <- pSuite p
       return (pc, s)
     pFinally = do
+      p <- getPosition
       reserved "finally"
       colon
-      s <- pSuite
+      s <- pSuite p
       return s
     pTryExcept = do
       es <- many1 pExceptSuite
@@ -328,10 +340,11 @@ pTryStatement = do
 
 pWithStatement :: Parser WithStatement
 pWithStatement = do
+  ps <- getPosition
   reserved "with"
   ws <- commaSep1 pWithItem
   colon
-  s <- pSuite
+  s <- pSuite ps
   return $ WithStatement ws s
 
 pWithItem :: Parser WithItem
@@ -364,14 +377,15 @@ pExceptClause = do
       return $ (c, t)
 
 --TODO: Critical to come back to this to insure indentation works
-pSuite :: Parser Suite
-pSuite = (Suite_Simple <$> pSimpleStatement) <|> (Suite_Compound <$> pIndent)
-  where pIndent = do
-            pNewline
-            --indent
-            ss <- many pStatement
-            --dedent
-            return ss
+pSuite :: SourcePos -> Parser Suite
+pSuite sp = (Suite_Simple <$> pSimpleStatement) <|> pIndent
+    where pIndent = do
+            ind <- getPosition
+            if sourceColumn ind >= ((sourceColumn sp) + 2) && sourceColumn ind <= ((sourceColumn sp) + 4)
+            then do
+              ss <- many pStatement
+              return $ Suite_Compound ss
+            else fail "improper indentation"
 
 pOldLambda :: Parser OldLambda
 pOldLambda = do
@@ -409,9 +423,9 @@ pAndTest = sepBy1 pNotTest (reserved "and")
 pNotTest :: Parser NotTest
 pNotTest =  (NotTest_Not <$> pNNot) <|> (NotTest_Comp <$> pComparison)
   where pNNot = do
-        reserved "not"
-        nt <- pNotTest
-        return nt
+          reserved "not"
+          nt <- pNotTest
+          return nt
 
 pComparison :: Parser Comparison
 pComparison = do
@@ -419,9 +433,9 @@ pComparison = do
   c <- many pCE
   return $ Comparison ex c
   where pCE = do
-        co <- pCompOperator
-        ex <- pExpression
-        return (co, ex)
+          co <- pCompOperator
+          ex <- pExpression
+          return (co, ex)
 
 pCompOperator :: Parser CompOperator
 pCompOperator = (CompOperator <$> pComp)
@@ -499,9 +513,9 @@ pAtom = pYieldOrTest <|> (Atom_List <$> (squares pListMaker)) <|> (Atom_Dict <$>
 pListMaker :: Parser ListMaker
 pListMaker = (ListMaker_Test <$> (pTest `sepBy1` comma)) <|> pLF
   where pLF = do
-        t <- pTest
-        c <- pListFor
-        return $ ListMaker_List t c
+          t <- pTest
+          c <- pListFor
+          return $ ListMaker_List t c
 
 pTestListComp :: Parser TestListComp
 pTestListComp = try (TestListComp_Test <$> (pTest `sepBy1` comma)) <|> pComp
@@ -571,11 +585,12 @@ pDictOrSetMaker = (DictOrSetMaker_Set <$> pSetMaker) <|> (DictOrSetMaker_Dict <$
 
 pClassDef :: Parser ClassDef
 pClassDef = do
+  p <- getPosition
   reserved "class"
   n <- identifier
   tl <- parens (parseMaybe pTestList)
   colon
-  s <- pSuite
+  s <- pSuite p
   return $ ClassDef n tl s
 
 --arglist: (argument ',')* (argument [',']
@@ -652,9 +667,3 @@ pYieldExpression = do
   reserved "yield"
   tl <- parseMaybe pTestList
   return tl
-
-
-    --pCompoundStatement :: Parser CompoundStatement
---pCompoundStatement = do
---  c <- char '0'
---  return $ CompoundStatement_If c

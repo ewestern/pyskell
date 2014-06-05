@@ -1,11 +1,11 @@
 --import Text.Parsec.Token(makeTokenParser)
-module Parser.Lexer where
+module Lexer where
 
 import Text.Parsec.String (Parser)
 import Text.Parsec
 import qualified Text.Parsec.Token as Tok
 import Text.Parsec.Language (emptyDef, LanguageDef)
-import Parser.Syntax
+import Syntax
 
 lexer :: Tok.TokenParser ()
 lexer = Tok.makeTokenParser def
